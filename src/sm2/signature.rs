@@ -115,6 +115,10 @@ impl SigCtx {
         }
     }
 
+    pub fn get_n(&self) -> &BigUint {
+        self.curve.get_n()
+    }
+
     pub fn hash(&self, id: &str, pk: &Point, msg: &[u8]) -> [u8; 32] {
         let curve = &self.curve;
 
