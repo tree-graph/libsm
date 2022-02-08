@@ -258,7 +258,12 @@ impl SigCtx {
         }
     }
 
-    pub fn sign_raw_recoverable(&self, digest: &[u8], sk: &BigUint, k: BigUint) -> Result<(Signature, u8), Sm2Error> {
+    pub fn sign_raw_recoverable(
+        &self,
+        digest: &[u8],
+        sk: &BigUint,
+        k: BigUint,
+    ) -> Result<(Signature, u8), Sm2Error> {
         let curve = &self.curve;
         // Get the value "e", which is the hash of message and ID, EC parameters and public key
 
@@ -277,7 +282,11 @@ impl SigCtx {
         }
 
         let overflow = r_total.clone() / curve.get_n();
-        let recid = (if overflow.is_zero() { 0 } else { 1 << overflow.to_u8().unwrap() }) | (if y_1.is_even() { 0 } else { 1 });
+        let recid = (if overflow.is_zero() {
+            0
+        } else {
+            1 << overflow.to_u8().unwrap()
+        }) | (if y_1.is_even() { 0 } else { 1 });
 
         // s = (1 + sk)^-1 * (k - r * sk)
         let s1 = curve.inv_n(&(sk + BigUint::one()));
@@ -300,7 +309,7 @@ impl SigCtx {
         Err(Sm2Error::InvalidMessage)
     }
 
-    pub fn recover(&self, msg: &[u8], sig: &Signature, rec_id: u8,) -> Result<Point, Sm2Error> {
+    pub fn recover(&self, msg: &[u8], sig: &Signature, rec_id: u8) -> Result<Point, Sm2Error> {
         if sig.get_r().is_zero() || sig.get_s().is_zero() {
             return Err(Sm2Error::InvalidSignature);
         }
