@@ -119,6 +119,14 @@ impl SigCtx {
         self.curve.get_n()
     }
 
+    pub fn new_point(&self, x: &FieldElem, y: &FieldElem) -> Result<Point, Sm2Error> {
+        self.curve.new_point(x, y)
+    }
+
+    pub fn bytes_to_point(&self, b: &[u8]) -> Result<Point, Sm2Error> {
+        self.curve.bytes_to_point(b)
+    }
+
     pub fn hash(&self, id: &str, pk: &Point, msg: &[u8]) -> [u8; 32] {
         let curve = &self.curve;
 
@@ -310,7 +318,7 @@ impl SigCtx {
     }
 
     pub fn recover(&self, msg: &[u8], sig: &Signature, rec_id: u8) -> Result<Point, Sm2Error> {
-        if sig.get_r().is_zero() || sig.get_s().is_zero() {
+        if sig.get_r().is_zero() || sig.get_s().is_zero() || rec_id > 5 {
             return Err(Sm2Error::InvalidSignature);
         }
 
