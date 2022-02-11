@@ -119,10 +119,6 @@ impl SigCtx {
         self.curve.get_n()
     }
 
-    pub fn new_point(&self, x: &FieldElem, y: &FieldElem) -> Result<Point, Sm2Error> {
-        self.curve.new_point(x, y)
-    }
-
     pub fn bytes_to_point(&self, b: &[u8]) -> Result<Point, Sm2Error> {
         self.curve.bytes_to_point(b)
     }
@@ -318,11 +314,16 @@ impl SigCtx {
     }
 
     pub fn recover(&self, msg: &[u8], sig: &Signature, rec_id: u8) -> Result<Point, Sm2Error> {
-        if sig.get_r().is_zero() || sig.get_s().is_zero() || rec_id > 5 {
+        let curve = &self.curve;
+
+        if sig.get_r().is_zero()
+            || sig.get_r() >= curve.get_n()
+            || sig.get_s().is_zero()
+            || sig.get_s() >= curve.get_n()
+            || rec_id > 5
+        {
             return Err(Sm2Error::InvalidSignature);
         }
-
-        let curve = &self.curve;
 
         let mut x = sig.get_r().clone();
         if rec_id & 4 != 0 {
@@ -334,10 +335,26 @@ impl SigCtx {
         let e = BigUint::from_bytes_be(msg);
         x = x - e;
 
-        let p = curve.get_point_x(&x, rec_id & 1)?;
+        let p = curve.get_point_x(&x, (rec_id & 1) as u32)?;
 
         // r = (p - sG) / (s + r)
         curve.calc_pubkey(sig.get_s(), sig.get_r(), &p)
+    }
+
+    pub fn ecdh_raw(&self, pk: &Point, sk: &BigUint) -> Result<(Vec<u8>, u8), Sm2Error> {
+        let curve = &self.curve;
+
+        if *sk >= *curve.get_n() || *sk == BigUint::zero() {
+            return Err(Sm2Error::InvalidPrivate);
+        }
+
+        let res = curve.mul(sk, pk);
+        let (x, y) = curve.to_affine(&res);
+
+        let x = x.to_bytes();
+        let y: u8 = 0x02 | (if y.is_even() { 0 } else { 1 });
+
+        Ok((x, y))
     }
 
     pub fn verify(&self, msg: &[u8], pk: &Point, sig: &Signature) -> bool {

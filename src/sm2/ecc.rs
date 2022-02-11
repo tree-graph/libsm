@@ -607,7 +607,7 @@ impl EccCtx {
         }
     }
 
-    pub fn get_point_x(&self, x: &BigUint, neg: u8) -> Result<Point, Sm2Error> {
+    pub fn get_point_x(&self, x: &BigUint, neg: u32) -> Result<Point, Sm2Error> {
         let ctx = &self.fctx;
 
         let x = FieldElem::from_biguint(x);
@@ -618,7 +618,7 @@ impl EccCtx {
 
         let mut y = self.fctx.sqrt(&y_2)?;
 
-        if y.get_value(7) & 0x01 != neg as u32 {
+        if y.get_value(7) & 0x01 != neg {
             y = self.fctx.neg(&y);
         }
 
@@ -627,16 +627,13 @@ impl EccCtx {
 
     pub fn calc_pubkey(&self, s: &BigUint, r: &BigUint, p: &Point) -> Result<Point, Sm2Error> {
         // r = (p - sG) / (s + r)
-        let sg = self.g_mul(s);
-        let sg = self.neg(&sg);
+        let sg = self.neg(&self.g_mul(s));
         let num1 = self.add(p, &sg);
 
         let denominator = s + r;
         let num2 = self.inv_n(&denominator);
 
-        let p = self.mul(&num2, &num1);
-        let p = self.to_affine(&p);
-        self.new_point(&p.0, &p.1)
+        Ok(self.mul(&num2, &num1))
     }
 }
 
