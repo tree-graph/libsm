@@ -21,6 +21,8 @@ pub enum Sm2Error {
     InvalidDer,
     InvalidPublic,
     InvalidPrivate,
+    InvalidMessage,
+    InvalidSignature,
 }
 
 impl ::std::fmt::Debug for Sm2Error {
@@ -37,6 +39,8 @@ impl From<Sm2Error> for &str {
             Sm2Error::InvalidDer => "invalid der",
             Sm2Error::InvalidPublic => "invalid public key",
             Sm2Error::InvalidPrivate => "invalid private key",
+            Sm2Error::InvalidMessage => "invalid message",
+            Sm2Error::InvalidSignature => "invalid signature",
         }
     }
 }
@@ -49,6 +53,8 @@ impl Display for Sm2Error {
             Sm2Error::InvalidDer => "invalid der",
             Sm2Error::InvalidPublic => "invalid public key",
             Sm2Error::InvalidPrivate => "invalid private key",
+            Sm2Error::InvalidMessage => "invalid message",
+            Sm2Error::InvalidSignature => "invalid signature",
         };
         write!(f, "{}", err_msg)
     }

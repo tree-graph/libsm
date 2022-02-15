@@ -606,6 +606,35 @@ impl EccCtx {
             Err(Sm2Error::InvalidPublic)
         }
     }
+
+    pub fn get_point_x(&self, x: &BigUint, neg: u32) -> Result<Point, Sm2Error> {
+        let ctx = &self.fctx;
+
+        let x = FieldElem::from_biguint(x);
+
+        let x_cubic = ctx.mul(&x, &ctx.mul(&x, &x));
+        let ax = ctx.mul(&x, &self.a);
+        let y_2 = ctx.add(&self.b, &ctx.add(&x_cubic, &ax));
+
+        let mut y = self.fctx.sqrt(&y_2)?;
+
+        if y.get_value(7) & 0x01 != neg {
+            y = self.fctx.neg(&y);
+        }
+
+        self.new_point(&x, &y)
+    }
+
+    pub fn calc_pubkey(&self, s: &BigUint, r: &BigUint, p: &Point) -> Result<Point, Sm2Error> {
+        // r = (p - sG) / (s + r)
+        let sg = self.neg(&self.g_mul(s));
+        let num1 = self.add(p, &sg);
+
+        let denominator = s + r;
+        let num2 = self.inv_n(&denominator);
+
+        Ok(self.mul(&num2, &num1))
+    }
 }
 
 impl Default for EccCtx {
@@ -785,6 +814,29 @@ mod tests {
         let g_bytes_comp = curve.point_to_bytes(&g, true);
         let new_g = curve.bytes_to_point(&g_bytes_comp[..]).unwrap();
         assert!(curve.eq(&g, &new_g));
+    }
+
+    #[test]
+    fn test_get_point_x() {
+        let curve = EccCtx::new();
+
+        // even
+        let g = curve.generator();
+        let (x, y) = curve.to_affine(&g);
+
+        let new_point = curve
+            .get_point_x(&x.to_biguint(), if y.is_even() { 0 } else { 1 })
+            .unwrap();
+        assert!(curve.eq(&g, &new_point));
+
+        // odd
+        let g = curve.double(&g);
+        let (x, y) = curve.to_affine(&g);
+
+        let new_point = curve
+            .get_point_x(&x.to_biguint(), if y.is_even() { 0 } else { 1 })
+            .unwrap();
+        assert!(curve.eq(&g, &new_point));
     }
 }
 

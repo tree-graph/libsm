@@ -115,6 +115,14 @@ impl SigCtx {
         }
     }
 
+    pub fn get_n(&self) -> &BigUint {
+        self.curve.get_n()
+    }
+
+    pub fn bytes_to_point(&self, b: &[u8]) -> Result<Point, Sm2Error> {
+        self.curve.bytes_to_point(b)
+    }
+
     pub fn hash(&self, id: &str, pk: &Point, msg: &[u8]) -> [u8; 32] {
         let curve = &self.curve;
 
@@ -252,6 +260,101 @@ impl SigCtx {
             }
             panic!("cannot sign")
         }
+    }
+
+    pub fn sign_raw_recoverable(
+        &self,
+        digest: &[u8],
+        sk: &BigUint,
+        k: BigUint,
+    ) -> Result<(Signature, u8), Sm2Error> {
+        let curve = &self.curve;
+        // Get the value "e", which is the hash of message and ID, EC parameters and public key
+
+        let e = BigUint::from_bytes_be(digest);
+
+        let p_1 = curve.g_mul(&k);
+        let (x_1, y_1) = curve.to_affine(&p_1);
+
+        let x_1 = x_1.to_biguint();
+
+        // r = e + x_1
+        let r_total = &e + x_1;
+        let r = r_total.clone() % curve.get_n();
+        if r == BigUint::zero() || &r + &k == *curve.get_n() {
+            return Err(Sm2Error::InvalidMessage);
+        }
+
+        let overflow = r_total.clone() / curve.get_n();
+        let recid = (if overflow.is_zero() {
+            0
+        } else {
+            1 << overflow.to_u8().unwrap()
+        }) | (if y_1.is_even() { 0 } else { 1 });
+
+        // s = (1 + sk)^-1 * (k - r * sk)
+        let s1 = curve.inv_n(&(sk + BigUint::one()));
+
+        let mut s2_1 = &r * sk;
+        if s2_1 < k {
+            s2_1 += curve.get_n();
+        }
+        let mut s2 = s2_1 - k;
+        s2 %= curve.get_n();
+        let s2 = curve.get_n() - s2;
+
+        let s = (s1 * s2) % curve.get_n();
+
+        if s != BigUint::zero() {
+            // Output the signature (r, s)
+            return Ok((Signature { r, s }, recid));
+        }
+
+        Err(Sm2Error::InvalidMessage)
+    }
+
+    pub fn recover(&self, msg: &[u8], sig: &Signature, rec_id: u8) -> Result<Point, Sm2Error> {
+        let curve = &self.curve;
+
+        if sig.get_r().is_zero()
+            || sig.get_r() >= curve.get_n()
+            || sig.get_s().is_zero()
+            || sig.get_s() >= curve.get_n()
+            || rec_id > 5
+        {
+            return Err(Sm2Error::InvalidSignature);
+        }
+
+        let mut x = sig.get_r().clone();
+        if rec_id & 4 != 0 {
+            x = x + curve.get_n() + curve.get_n();
+        } else if rec_id & 2 != 0 {
+            x = x + curve.get_n();
+        }
+
+        let e = BigUint::from_bytes_be(msg);
+        x = x - e;
+
+        let p = curve.get_point_x(&x, (rec_id & 1) as u32)?;
+
+        // r = (p - sG) / (s + r)
+        curve.calc_pubkey(sig.get_s(), sig.get_r(), &p)
+    }
+
+    pub fn ecdh_raw(&self, pk: &Point, sk: &BigUint) -> Result<(Vec<u8>, u8), Sm2Error> {
+        let curve = &self.curve;
+
+        if *sk >= *curve.get_n() || *sk == BigUint::zero() {
+            return Err(Sm2Error::InvalidPrivate);
+        }
+
+        let res = curve.mul(sk, pk);
+        let (x, y) = curve.to_affine(&res);
+
+        let x = x.to_bytes();
+        let y: u8 = 0x02 | (if y.is_even() { 0 } else { 1 });
+
+        Ok((x, y))
     }
 
     pub fn verify(&self, msg: &[u8], pk: &Point, sig: &Signature) -> bool {
@@ -477,6 +580,72 @@ mod tests {
         let sig = Signature::der_decode(&sig_bz).unwrap();
 
         assert!(ctx.verify(&msg, &pk, &sig));
+    }
+
+    #[test]
+    fn test_sign_raw_recoverable() {
+        let ctx = SigCtx::new();
+        let (pk, sk) = ctx.new_keypair();
+
+        let string = String::from("abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd");
+        let msg = string.as_bytes();
+        let digest = ctx.hash("1234567812345678", &pk, msg);
+
+        let k = ctx.curve.random_uint();
+
+        let signature = ctx.sign_raw_recoverable(&digest, &sk, k).unwrap();
+        let invalid_sig = ctx.recover(&digest, &signature.0, 6);
+        match invalid_sig {
+            Ok(_) => panic!("Invalid Signature"),
+            Err(e) => assert_eq!(format!("{}", e), "invalid signature"),
+        }
+
+        let recovered_pk = ctx.recover(&digest, &signature.0, signature.1).unwrap();
+        assert!(ctx.curve.eq(&pk, &recovered_pk));
+        assert!(ctx.verify(msg, &pk, &signature.0));
+    }
+
+    #[test]
+    fn test_ecdh_raw() {
+        let ctx = SigCtx::new();
+        let (pk, sk) = ctx.new_keypair();
+
+        let x = ctx.ecdh_raw(&ctx.curve.generator(), &sk).unwrap();
+        let p = BigUint::from_bytes_be(&x.0);
+
+        let new_pk = ctx
+            .curve
+            .get_point_x(&p, if x.1 == 2 { 0 } else { 1 })
+            .unwrap();
+        assert!(ctx.curve.eq(&pk, &new_pk));
+    }
+
+    #[test]
+    fn test_ecdh_raw_secret() {
+        let ctx = SigCtx::new();
+        let (pk1, sk1) = ctx.new_keypair();
+        let (pk2, sk2) = ctx.new_keypair();
+
+        let x1 = ctx.ecdh_raw(&pk1, &sk2).unwrap();
+        let secret1 = ctx
+            .curve
+            .get_point_x(
+                &BigUint::from_bytes_be(&x1.0),
+                if x1.1 == 2 { 0 } else { 1 },
+            )
+            .unwrap();
+
+        let x2 = ctx.ecdh_raw(&pk2, &sk1).unwrap();
+        let secret2 = ctx
+            .curve
+            .get_point_x(
+                &BigUint::from_bytes_be(&x2.0),
+                if x2.1 == 2 { 0 } else { 1 },
+            )
+            .unwrap();
+
+        assert_eq!(x1, x2);
+        assert!(ctx.curve.eq(&secret1, &secret2));
     }
 }
 
