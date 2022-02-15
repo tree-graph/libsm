@@ -629,15 +629,21 @@ mod tests {
         let x1 = ctx.ecdh_raw(&pk1, &sk2).unwrap();
         let secret1 = ctx
             .curve
-            .get_point_x(&BigUint::from_bytes_be(&x1.0), if x1.1 == 2 { 0 } else { 1 })
+            .get_point_x(
+                &BigUint::from_bytes_be(&x1.0),
+                if x1.1 == 2 { 0 } else { 1 },
+            )
             .unwrap();
 
         let x2 = ctx.ecdh_raw(&pk2, &sk1).unwrap();
         let secret2 = ctx
             .curve
-            .get_point_x(&BigUint::from_bytes_be(&x2.0), if x2.1 == 2 { 0 } else { 1 })
+            .get_point_x(
+                &BigUint::from_bytes_be(&x2.0),
+                if x2.1 == 2 { 0 } else { 1 },
+            )
             .unwrap();
-        
+
         assert_eq!(x1, x2);
         assert!(ctx.curve.eq(&secret1, &secret2));
     }
