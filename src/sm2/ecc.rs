@@ -815,6 +815,29 @@ mod tests {
         let new_g = curve.bytes_to_point(&g_bytes_comp[..]).unwrap();
         assert!(curve.eq(&g, &new_g));
     }
+
+    #[test]
+    fn test_get_point_x() {
+        let curve = EccCtx::new();
+
+        // even
+        let g = curve.generator();
+        let (x, y) = curve.to_affine(&g);
+
+        let new_point = curve
+            .get_point_x(&x.to_biguint(), if y.is_even() { 0 } else { 1 })
+            .unwrap();
+        assert!(curve.eq(&g, &new_point));
+
+        // odd
+        let g = curve.double(&g);
+        let (x, y) = curve.to_affine(&g);
+
+        let new_point = curve
+            .get_point_x(&x.to_biguint(), if y.is_even() { 0 } else { 1 })
+            .unwrap();
+        assert!(curve.eq(&g, &new_point));
+    }
 }
 
 #[cfg(feature = "internal_benches")]

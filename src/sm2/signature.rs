@@ -581,6 +581,66 @@ mod tests {
 
         assert!(ctx.verify(&msg, &pk, &sig));
     }
+
+    #[test]
+    fn test_sign_raw_recoverable() {
+        let ctx = SigCtx::new();
+        let (pk, sk) = ctx.new_keypair();
+
+        let string = String::from("abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd");
+        let msg = string.as_bytes();
+        let digest = ctx.hash("1234567812345678", &pk, msg);
+
+        let k = ctx.curve.random_uint();
+
+        let signature = ctx.sign_raw_recoverable(&digest, &sk, k).unwrap();
+        let invalid_sig = ctx.recover(&digest, &signature.0, 6);
+        match invalid_sig {
+            Ok(_) => panic!("Invalid Signature"),
+            Err(e) => assert_eq!(format!("{}", e), "invalid signature"),
+        }
+
+        let recovered_pk = ctx.recover(&digest, &signature.0, signature.1).unwrap();
+        assert!(ctx.curve.eq(&pk, &recovered_pk));
+        assert!(ctx.verify(msg, &pk, &signature.0));
+    }
+
+    #[test]
+    fn test_ecdh_raw() {
+        let ctx = SigCtx::new();
+        let (pk, sk) = ctx.new_keypair();
+
+        let x = ctx.ecdh_raw(&ctx.curve.generator(), &sk).unwrap();
+        let p = BigUint::from_bytes_be(&x.0);
+
+        let new_pk = ctx
+            .curve
+            .get_point_x(&p, if x.1 == 2 { 0 } else { 1 })
+            .unwrap();
+        assert!(ctx.curve.eq(&pk, &new_pk));
+    }
+
+    #[test]
+    fn test_ecdh_raw_secret() {
+        let ctx = SigCtx::new();
+        let (pk1, sk1) = ctx.new_keypair();
+        let (pk2, sk2) = ctx.new_keypair();
+
+        let x1 = ctx.ecdh_raw(&pk1, &sk2).unwrap();
+        let secret1 = ctx
+            .curve
+            .get_point_x(&BigUint::from_bytes_be(&x1.0), if x1.1 == 2 { 0 } else { 1 })
+            .unwrap();
+
+        let x2 = ctx.ecdh_raw(&pk2, &sk1).unwrap();
+        let secret2 = ctx
+            .curve
+            .get_point_x(&BigUint::from_bytes_be(&x2.0), if x2.1 == 2 { 0 } else { 1 })
+            .unwrap();
+        
+        assert_eq!(x1, x2);
+        assert!(ctx.curve.eq(&secret1, &secret2));
+    }
 }
 
 #[cfg(feature = "internal_benches")]
